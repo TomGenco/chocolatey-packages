@@ -1,0 +1,151 @@
+# Adapted from the AppVeyor build scripts by majkinetor and chocolatey-community
+
+name: Chocolatey Automatic Package Updater
+
+env:
+  # Set au version to use or omit to use the latest. Specify branch name to use development version from Github
+  au_version: ${{ vars.au_version }}
+  au_push: true
+
+  # Github token to commit pushed packages to repository
+  github_user_repo: ${{ github.repository }}
+  github_api_key: ${{ secrets.personal_access_token }}
+
+  # ID of the gist used to save run results
+  gist_id: ${{ vars.gist_id }}
+
+  # Chocolatey API key - to push updated packages
+  api_key: ${{ secrets.chocolatey_api_key }}
+
+  # Chocolatey version we want to use when checking for updates (usually latest).
+  choco_version: ${{ vars.choco_version }}
+  choco_version_pr: '2.0.0' # Should be kept to the version available one year ago
+  nupkg_cache_path: C:\packages
+
+# Controls when the workflow will run
+on:
+  schedule:
+  - cron: '45 0/6 * * *'
+  
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+  workflow_dispatch:
+    inputs:
+      au_push:
+        description: 'Push updates to Chocolatey'
+        default: true
+        type: boolean
+
+jobs:
+  au:
+    name: Update All Automatic Packages
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        shell: powershell
+        run: |
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global core.safecrlf false
+
+          $chocoVersion = $Env:choco_version
+          if ($Env:inputs.au_push -ne $null) { $Env:au_push = $Env:inputs.au_push }
+          if (!(Test-Path "$env:nupkg_cache_path")) { mkdir -Force "$env:nupkg_cache_path" }
+          @{
+            'chocolatey' = $chocoVersion
+            'wormies-au-helpers' = '0.4.1'
+            'chocolatey-core.extension' = '1.4.0'
+            'autohotkey.install' = '1.1.35.00'
+            'chocolatey-community-validation.extension' = '0.1.0'
+          }.GetEnumerator() | % {
+            if (!(Test-Path "${env:nupkg_cache_path}\$($_.Key).$($_.Value).nupkg")) { rm "${env:nupkg_cache_path}\$($_.Key).*.nupkg" ; Invoke-WebRequest "https://chocolatey.org/api/v2/package/$($_.Key)/$($_.Value)" -OutFile "${env:nupkg_cache_path}\$($_.Key).$($_.Value).nupkg" }
+            if ($_.Key -eq 'chocolatey') { choco upgrade $_.Key --version $_.Value --source ${env:nupkg_cache_path} --allow-downgrade --pre }
+            else { choco install $_.Key --version $_.Value --source ${env:nupkg_cache_path} --ignore-dependencies }
+          }
+          rm "$env:ChocolateyInstall\logs\*.log"
+
+          'Get-CimInstance win32_operatingsystem -Property Caption, OSArchitecture, Version | fl Caption, OSArchitecture, Version'
+
+          $PSVersionTable
+
+          git --version
+          choco --version
+
+          choco install chocolatey-au --no-progress --prerelease --version=$Env:au_version
+          
+          if ($?) {
+            git clone -q https://github.com/chocolatey-community/chocolatey-au.git $Env:TEMP/au
+            . "$Env:TEMP/au/scripts/Install-AU.ps1" $Env:au_version
+          }
+          "Build info"
+          '  {0,-20} {1}' -f 'SCHEDULED BUILD:', ($Env:github.event_name        -eq 'schedule')
+          '  {0,-20} {1}' -f 'FORCED BUILD:'   , ($Env:github.event_name        -eq 'workflow_dispatch')
+          '  {0,-20} {1}' -f 'RE BUILD:'       , ($Env:github.run_attempt       -ne '1')
+
+      - name: Update Packages
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          
+          # . ./scripts/EventLogs.ps1
+          # Clear-EventLogs
+          #
+          # if (($Env:github.event_name -eq 'pull-request')) {
+          #   Set-Service wuauserv -StartupType Manual
+          #   ./scripts/Test-RepoPackage.ps1 -CleanFiles -TakeScreenshots
+          #   return
+          # } else {
+          #   # Clean the choco logs as it's quite large
+          #   rm "$env:ChocolateyInstall\logs\*.log"
+          # }
+          if ( ($Env:github.event_name -ne 'schedule') -and ($Env:github.event_name -ne 'workflow_dispatch') ) {
+              switch -regex ($Env:github.event.head_commit.message)
+              {
+                  '\[AU (.+?)\]'   { $forced = $Matches[1] }
+                  '\[PUSH (.+?)\]' {
+                      $packages = $Matches[1] -split ' '
+                      Write-Host "PUSHING PACKAGES: $packages"
+                      foreach ($package in $packages) {
+                          Write-Host ("{0}`n{1}`n" -f ('-'*60), "PACKAGE: $package")
+                          $package_dir = ls -recurse | ? { $_.Name -eq "$package.nuspec"} | select -First 1 | % Directory
+                          
+                          if (!$package_dir) { Write-Warning "Can't find package '$package'"; continue }
+                          pushd $package_dir
+                            if (Test-Path update.ps1 -ea 0) { ./update.ps1 }
+                            choco pack; Push-Package -All;
+                          popd
+                      }
+                      return
+                  }
+              }
+          }
+          
+          ./update_all.ps1 -ForcedPackages $forced
+          # Get-EventLogs * | ? Source -eq 'Schannel' | fl * |  out-file eventlogs.txt
+
+      - name: on_finish
+        shell: powershell
+        run: |
+          mkdir artifacts
+          if (Test-Path $Env:TEMP\chocolatey\au) { 7z a -mx9 au_temp.7z $Env:TEMP\chocolatey\au\* }
+          $paths = @(
+            Resolve-Path "$env:TEMP\artifacts\*" -ea 0
+            Resolve-Path "$env:ChocolateyInstall\logs\*.log" -ea 0
+            'au_temp.7z'
+            'update_info.xml'
+            'Update-AUPackages.md'
+            'Update-History.md'
+            'eventlogs.txt'
+          )
+          $paths | ? { Test-Path $_ } | % { cp $_ artifacts/ }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          path: artifacts/*
+
+      # TODO: notifications

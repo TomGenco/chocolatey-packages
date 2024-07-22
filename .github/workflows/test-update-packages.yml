@@ -1,0 +1,116 @@
+# Adapted from the AppVeyor build scripts by majkinetor and chocolatey-community
+
+name: Chocolatey Automatic Package Updater Tester
+
+env:
+  # Set au version to use or omit to use the latest. Specify branch name to use development version from Github
+  au_version: ${{ vars.au_version }}
+  au_push: false
+  # Use 1 to test all, or N to split testing into N groups
+  au_test_groups: ${{ vars.au_test_groups }}
+
+  # Github token to commit pushed packages to repository
+  github_user_repo: ${{ github.repository }}
+  github_api_key: ${{ secrets.personal_access_token }}
+
+  # ID of the gist used to save test run results
+  gist_id_test: ${{ vars.gist_id_test }}
+
+  # Chocolatey API key - to push updated packages
+  api_key: ${{ secrets.chocolatey_api_key }}
+
+  # Chocolatey version we want to use when checking for updates (usually latest).
+  choco_version: ${{ vars.choco_version }}
+  choco_version_pr: '2.0.0' # Should be kept to the version available one year ago
+  nupkg_cache_path: C:\packages
+
+# Controls when the workflow will run
+on:
+  schedule:
+  - cron: '45 6 * * 1'
+  
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+  workflow_dispatch:
+
+jobs:
+  au_test:
+    name: Test Updating All Automatic Packages
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup
+        shell: powershell
+        run: |
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global core.safecrlf false
+
+          $chocoVersion = $Env:choco_version
+          if (!(Test-Path "$env:nupkg_cache_path")) { mkdir -Force "$env:nupkg_cache_path" }
+          @{
+            'chocolatey' = $chocoVersion
+            'wormies-au-helpers' = '0.4.1'
+            'chocolatey-core.extension' = '1.4.0'
+            'autohotkey.install' = '1.1.35.00'
+            'chocolatey-community-validation.extension' = '0.1.0'
+          }.GetEnumerator() | % {
+            if (!(Test-Path "${env:nupkg_cache_path}\$($_.Key).$($_.Value).nupkg")) { rm "${env:nupkg_cache_path}\$($_.Key).*.nupkg" ; Invoke-WebRequest "https://chocolatey.org/api/v2/package/$($_.Key)/$($_.Value)" -OutFile "${env:nupkg_cache_path}\$($_.Key).$($_.Value).nupkg" }
+            if ($_.Key -eq 'chocolatey') { choco upgrade $_.Key --version $_.Value --source ${env:nupkg_cache_path} --allow-downgrade --pre }
+            else { choco install $_.Key --version $_.Value --source ${env:nupkg_cache_path} --ignore-dependencies }
+          }
+          rm "$env:ChocolateyInstall\logs\*.log"
+
+          'Get-CimInstance win32_operatingsystem -Property Caption, OSArchitecture, Version | fl Caption, OSArchitecture, Version'
+
+          $PSVersionTable
+
+          git --version
+          choco --version
+
+          choco install chocolatey-au --no-progress --prerelease --version=$Env:au_version
+          
+          if ($?) {
+            git clone -q https://github.com/chocolatey-community/chocolatey-au.git $Env:TEMP/au
+            . "$Env:TEMP/au/scripts/Install-AU.ps1" $Env:au_version
+          }
+          "Build info"
+          '  {0,-20} {1}' -f 'SCHEDULED BUILD:', ($Env:github.event_name        -eq 'schedule')
+          '  {0,-20} {1}' -f 'FORCED BUILD:'   , ($Env:github.event_name        -eq 'workflow_dispatch')
+          '  {0,-20} {1}' -f 'RE BUILD:'       , ($Env:github.run_attempt       -ne '1')
+
+      - name: Test Update Packages
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          
+          # . ./scripts/EventLogs.ps1
+          # Clear-EventLogs
+          
+          ./test_all.ps1 "random $Env:au_test_groups"
+
+      - name: on_finish
+        shell: powershell
+        run: |
+          mkdir artifacts
+          if (Test-Path $Env:TEMP\chocolatey\au) { 7z a -mx9 au_temp.7z $Env:TEMP\chocolatey\au\* }
+          $paths = @(
+            Resolve-Path "$env:TEMP\artifacts\*" -ea 0
+            Resolve-Path "$env:ChocolateyInstall\logs\*.log" -ea 0
+            'au_temp.7z'
+            'update_info.xml'
+            'Update-AUPackages.md'
+            'Update-History.md'
+            'eventlogs.txt'
+          )
+          $paths | ? { Test-Path $_ } | % { cp $_ artifacts/ }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          path: artifacts/*
+
+      # TODO: notifications
