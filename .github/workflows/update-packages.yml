@@ -87,7 +87,7 @@ jobs:
           "Build info"
           '  {0,-20} {1}' -f 'SCHEDULED BUILD:', ($Env:github.event_name        -eq 'schedule')
           '  {0,-20} {1}' -f 'FORCED BUILD:'   , ($Env:github.event_name        -eq 'workflow_dispatch')
-          '  {0,-20} {1}' -f 'RE BUILD:'       , ($Env:github.run_attempt       -ne '1')
+          '  {0,-20} {1}' -f 'RE BUILD:'       , ($Env:github.run_attempt       -gt 1)
 
       - name: Update Packages
         shell: powershell
