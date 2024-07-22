@@ -31,8 +31,10 @@ on:
   
   push:
     branches: [ "master" ]
+    paths: [ "**.ps1" ]
   pull_request:
     branches: [ "master" ]
+    paths: [ "**.ps1" ]
 
   workflow_dispatch:
 
@@ -73,11 +75,11 @@ jobs:
           choco --version
 
           choco install chocolatey-au --no-progress --prerelease --version=$Env:au_version
-          
-          if ($?) {
+          if (!$?) {
             git clone -q https://github.com/chocolatey-community/chocolatey-au.git $Env:TEMP/au
             . "$Env:TEMP/au/scripts/Install-AU.ps1" $Env:au_version
           }
+          
           "Build info"
           '  {0,-20} {1}' -f 'SCHEDULED BUILD:', ($Env:github.event_name        -eq 'schedule')
           '  {0,-20} {1}' -f 'FORCED BUILD:'   , ($Env:github.event_name        -eq 'workflow_dispatch')
