@@ -43,6 +43,7 @@ on:
 
 jobs:
   au:
+    if: false
     name: Update All Automatic Packages
     runs-on: windows-latest
     steps:
