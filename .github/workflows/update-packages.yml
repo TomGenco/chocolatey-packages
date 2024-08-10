@@ -110,7 +110,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
 
-          $NoCheckChocoVersion = $Env:no_check_choco_version
+          $Env:NoCheckChocoVersion = $Env:no_check_choco_version
           
           # . ./scripts/EventLogs.ps1
           # Clear-EventLogs
