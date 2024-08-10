@@ -26,7 +26,7 @@ env:
   nupkg_cache_path: C:\packages
 
   # Still update the repo even if the version in Chocolatey is up to date
-  updateall_params: -NoCheckChocoVersion
+  no_check_choco_version: true
 
 # Controls when the workflow will run
 on:
@@ -142,8 +142,10 @@ jobs:
                   }
               }
           }
+
+          $au_NoCheckChocoVersion = $Env.no_check_choco_version
           
-          ./update_all.ps1 -ForcedPackages $forced $Env:updateall_params
+          ./update_all.ps1 -ForcedPackages $forced
           # Get-EventLogs * | ? Source -eq 'Schannel' | fl * |  out-file eventlogs.txt
 
       - name: on_finish
