@@ -25,9 +25,6 @@ env:
   choco_version_pr: '2.0.0' # Should be kept to the version available one year ago
   nupkg_cache_path: C:\packages
 
-  # Still update the repo even if the version in Chocolatey is up to date
-  no_check_choco_version: true
-
 # Controls when the workflow will run
 on:
   # schedule:
@@ -142,8 +139,6 @@ jobs:
                   }
               }
           }
-
-          $au_NoCheckChocoVersion = $Env.no_check_choco_version
           
           ./update_all.ps1 -ForcedPackages $forced
           # Get-EventLogs * | ? Source -eq 'Schannel' | fl * |  out-file eventlogs.txt
