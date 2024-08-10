@@ -27,15 +27,15 @@ env:
 
 # Controls when the workflow will run
 on:
-  schedule:
-  - cron: '45 0/6 * * *'
+  # schedule:
+  # - cron: '45 0/6 * * *'
   
-  push:
-    branches: [ "master" ]
-    paths: [ "**.ps1" ]
-  pull_request:
-    branches: [ "master" ]
-    paths: [ "**.ps1" ]
+  # push:
+  #   branches: [ "master" ]
+  #   paths: [ "**.ps1" ]
+  # pull_request:
+  #   branches: [ "master" ]
+  #   paths: [ "**.ps1" ]
 
   workflow_dispatch:
     inputs:
@@ -46,7 +46,6 @@ on:
 
 jobs:
   au:
-    if: false
     name: Update All Automatic Packages
     runs-on: windows-latest
     steps:
